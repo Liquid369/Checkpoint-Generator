@@ -8,23 +8,27 @@ var blockspacing = 10000;
 var currentblock = 487000;
 //Set true or false depending on your requirement
 var fBreadwallet = false;
+var findBadTimes = true; //Check for blocks that have a time that is out of block order
 var fisPIVXFork = true;
 var fisEnergiFork = false;
 var totaltx = 1027987;//get this from the tx=... number in the SetBestChain debug.log lines
 var i = 0;
+var b = 1;
+
+var blocks = [];
 //Blockbook only requirements,genesis block is not recorded in blockbook.
 var genesishash = "0000093cfce0a5a3cecea522e2c13bdf055d65c559fd2222730ba6f0d18dd2cd";
 var genesisbits = "0x1e0ffff0"
 var genesistime = 1558130910;
 function generateCheckpoints(blockdelay, blockcountcurr) {
     if (i +1<= blockcountcurr) {
-        if (i + blockdelay > blockcountcurr || i > blockcountcurr) 
+        if (i + blockdelay > blockcountcurr || i > blockcountcurr)
             i = blockcountcurr;
-        else if (i == 1) 
+        else if (i == 1)
             i = blockdelay;
         else if (i == 0) {
             outputdatax = "";
-        } else 
+        } else
             i += blockdelay - 1;
         if(explorerType != "bulwark" || explorerType != "blockbook"){
         //Get block hash
@@ -33,10 +37,21 @@ function generateCheckpoints(blockdelay, blockcountcurr) {
         }, (err, res, body) => {
             currblockhash = body;
             //now that we got blockhash,get block data and parse it to needed info
-            ConvertBlockData(body,i);
+            if(findBadTimes){
+              if(i != 0){
+                ConvertBlockData(body,i-1);
+                ConvertBlockData(body,i);
+                ConvertBlockData(body,i+1);
+                i++;
+              }else{
+                ConvertBlockData(body,i);
+                i++;
+              }
+            }else{
+              ConvertBlockData(body,i);
+            }
             //Call the func in of itself,emulating a for loop type situation.
             generateCheckpoints(blockspacing, currentblock);
-
         });
         }
         else if(explorerType == "blockbook"){
@@ -44,6 +59,17 @@ function generateCheckpoints(blockdelay, blockcountcurr) {
             //Call the func in of itself,emulating a for loop type situation.
             generateCheckpoints(blockspacing, currentblock);
         }
+    }else if(findBadTimes){
+      blocks.sort(function(a,b) {
+            return a.block - b.block;
+        });
+      for(x = 0; x < blocks.length; x++){
+        if(x != 0 && x != blocks.length-1){
+          if(blocks[x-1].time > blocks[x].time){
+            console.log("BadTime " + blocks[x-1].block + ":" +blocks[x-1].time + " & " + blocks[x].block + ":" +blocks[x].time)
+          }
+        }
+      }
     }
 }
 function ConvertBlockData(currblockhash,blockheight) {
@@ -59,9 +85,16 @@ function ConvertBlockData(currblockhash,blockheight) {
             if (blockheightx == 0 || blockheightx < currentblock) { //genesis block or after gn
                 outputdata = "{" + blockheightx + ",uint256(" + hashinquotes + "), " + blocktime + ",0x" + blockbits + "},";
             } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
+              if(findBadTimes){
+                blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+                b++;
+              }else{
                 outputdata = "{" + blockheightx + ",uint256(" + hashinquotes + "), " + blocktime + ",0x" + blockbits + "}";
+              }
             }
-            console.log(outputdata)
+            if(!findBadTimes){
+              console.log(outputdata)
+            }
         } else if (fisPIVXFork) {
             var hashinquotes = '"0x' + body.hash + '"';
             if (blockheightx == 0) { //genesis block
@@ -69,17 +102,24 @@ function ConvertBlockData(currblockhash,blockheight) {
                 outputdata += "boost::assign::map_list_of\n";
                 outputdata += "(" + blockheightx + ",uint256(" + hashinquotes + "))";
             } else if (blockheightx < currentblock && blockheightx > 0) {
+              if(findBadTimes){
+                blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+                b++;
+              }else{
                 outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "))";
+              }
             } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
                 outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "));\n";
                 outputdata += "static const Checkpoints::CCheckpointData data = {"
-                         +"\n&mapCheckpoints,\n" 
-                         +blocktime + ",// * UNIX timestamp of last checkpoint block\n" 
+                         +"\n&mapCheckpoints,\n"
+                         +blocktime + ",// * UNIX timestamp of last checkpoint block\n"
                          +totaltx+",    // * total number of transactions between genesis and last checkpoint\n" +
-                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" + 
+                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" +
                          2000 + "       // * estimated number of transactions per day after checkpoint\n};";
             }
-            console.log(outputdata)
+            if(!findBadTimes){
+              console.log(outputdata)
+            }
         }
         else if (fisEnergiFork) {
             var hashinquotes = '"0x' + body.hash + '"';
@@ -87,16 +127,23 @@ function ConvertBlockData(currblockhash,blockheight) {
                 outputdata = "        checkpointData = {" +
                 "\n{\n{"+blockheightx+",uint256S("+hashinquotes+")},\n";
             } else if (blockheightx < currentblock && blockheightx > 0) {
-               outputdata = "{"+blockheightx+",uint256S("+hashinquotes+")},\n";
+              if(findBadTimes){
+                blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+                b++;
+              }else{
+                outputdata = "{"+blockheightx+",uint256S("+hashinquotes+")},\n";
+              }
             } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
                outputdata = "{"+blockheightx+",uint256S("+hashinquotes+")}\n}\n};\n";
                outputdata += "\nchainTxData = ChainTxData{\n"
-               +blocktime + ",// * UNIX timestamp of last checkpoint block\n" 
+               +blocktime + ",// * UNIX timestamp of last checkpoint block\n"
                          +totaltx+",    // * total number of transactions between genesis and last checkpoint\n" +
-                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" + 
+                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" +
                          2000 + "       // * estimated number of transactions per day after checkpoint\n};";
             }
-            console.log(outputdata)
+            if(!findBadTimes){
+              console.log(outputdata)
+            }
         }
     });
 }
@@ -111,26 +158,40 @@ function ConvertBlockData(currblockhash,blockheight) {
             if (body.height == 0 || body.height < currentblock) { //genesis block or after gn
                 outputdata = "{" + body.height + ",uint256(" + hashinquotes + "), " + timeEpoch + ",0x" + blockbits + "},";
             } else if (body.height == currentblock) { //last block in checkpoints,so dont add , at end of output data
-                outputdata = "{" + body.height + ",uint256(" + hashinquotes + "), " + timeEpoch + ",0x" + blockbits + "}";
+              if(findBadTimes){
+                blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+                b++;
+              }else{
+                outputdata = "{" + blockheightx + ",uint256(" + hashinquotes + "), " + blocktime + ",0x" + blockbits + "}";
+              }
             }
-            console.log(outputdata)
+            if(!findBadTimes){
+              console.log(outputdata)
+            }
         } else if (fisPIVXFork) {
             if (blockheightx == 0) { //genesis block
                 outputdata = "static Checkpoints::MapCheckpoints mapCheckpoints = \n";
                 outputdata += "boost::assign::map_list_of\n";
                 outputdata += "(" + blockheightx + ",uint256(" + hashinquotes + "))";
             } else if (blockheightx < currentblock && blockheightx > 0) {
-                outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "))";
+                if(findBadTimes){
+                  blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+                  b++;
+                }else{
+                  outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "))";
+                }
             } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
                 outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "));\n";
                 outputdata += "static const Checkpoints::CCheckpointData data = {"
-                         +"\n&mapCheckpoints,\n" 
-                         +blocktime + ",// * UNIX timestamp of last checkpoint block\n" 
+                         +"\n&mapCheckpoints,\n"
+                         +blocktime + ",// * UNIX timestamp of last checkpoint block\n"
                          +totaltx+",    // * total number of transactions between genesis and last checkpoint\n" +
-                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" + 
+                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" +
                          2000 + "       // * estimated number of transactions per day after checkpoint\n};";
             }
-            console.log(outputdata)
+            if(!findBadTimes){
+              console.log(outputdata)
+            }
         }
         else if (fisEnergiFork) {
              hashinquotes = '"0x' + body.hash + '"';
@@ -138,16 +199,23 @@ function ConvertBlockData(currblockhash,blockheight) {
                 outputdata = "        checkpointData = {" +
                 "\n{\n{"+blockheightx+",uint256S("+hashinquotes+")},\n";
             } else if (blockheightx < currentblock && blockheightx > 0) {
-               outputdata = "{"+blockheightx+",uint256S("+hashinquotes+")},\n";
+              if(findBadTimes){
+                blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+                b++;
+              }else{
+                outputdata = "{"+blockheightx+",uint256S("+hashinquotes+")},\n";
+              }
             } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
                outputdata = "{"+blockheightx+",uint256S("+hashinquotes+")}\n}\n};\n";
                outputdata += "\nchainTxData = ChainTxData{\n"
-               +timeEpoch + ",// * UNIX timestamp of last checkpoint block\n" 
+               +timeEpoch + ",// * UNIX timestamp of last checkpoint block\n"
                          +totaltx+",    // * total number of transactions between genesis and last checkpoint\n" +
-                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" + 
+                         "              //   (the tx=... number in the SetBestChain debug.log lines)\n" +
                          2000 + "       // * estimated number of transactions per day after checkpoint\n};";
             }
-            console.log(outputdata)
+            if(!findBadTimes){
+              console.log(outputdata)
+            }
         }
     });
   }
@@ -169,26 +237,40 @@ function ConvertBlockData(currblockhash,blockheight) {
         if (blockheightx == 0 || blockheightx < currentblock) { //genesis block or after gn
             outputdata = "{" + blockheightx + ",uint256(" + hashinquotes + "), " + blocktime + ",0x" + blockbits + "},";
         } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
+          if(findBadTimes){
+            blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+            b++;
+          }else{
             outputdata = "{" + blockheightx + ",uint256(" + hashinquotes + "), " + blocktime + ",0x" + blockbits + "}";
+          }
         }
-        console.log(outputdata)
+        if(!findBadTimes){
+          console.log(outputdata)
+        }
     } else if (fisPIVXFork) {
         if (blockheightx == 0) { //genesis block
             outputdata = "static Checkpoints::MapCheckpoints mapCheckpoints = \n";
             outputdata += "boost::assign::map_list_of\n";
             outputdata += "(" + blockheightx + ",uint256(" + hashinquotes + "))";
         } else if (blockheightx < currentblock && blockheightx > 0) {
-            outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "))";
+            if(findBadTimes){
+              blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+              b++;
+            }else{
+              outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "))";
+            }
         } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
             outputdata = "(" + blockheightx + ",uint256(" + hashinquotes + "));\n";
             outputdata += "static const Checkpoints::CCheckpointData data = {"
-                     +"\n&mapCheckpoints,\n" 
-                     +blocktime + ",// * UNIX timestamp of last checkpoint block\n" 
+                     +"\n&mapCheckpoints,\n"
+                     +blocktime + ",// * UNIX timestamp of last checkpoint block\n"
                      +totaltx+",    // * total number of transactions between genesis and last checkpoint\n" +
-                     "              //   (the tx=... number in the SetBestChain debug.log lines)\n" + 
+                     "              //   (the tx=... number in the SetBestChain debug.log lines)\n" +
                      2000 + "       // * estimated number of transactions per day after checkpoint\n};";
         }
-        console.log(outputdata)
+        if(!findBadTimes){
+          console.log(outputdata)
+        }
     }
     else if (fisEnergiFork) {
         var hashinquotes = '"0x' + body.hash + '"';
@@ -197,19 +279,28 @@ function ConvertBlockData(currblockhash,blockheight) {
             outputdata = "        checkpointData = {\n" +
             "          {\n           {"+blockheightx+",uint256S("+hashinquotes+")},";
         } else if (blockheightx < currentblock && blockheightx > 0) {
-           outputdata = "           {"+blockheightx+",uint256S("+hashinquotes+")},";
+          if(findBadTimes){
+            blocks[b] = {block:blockheightx, time:blocktime, Hash:hashinquotes};
+            b++;
+          }else{
+            outputdata = "           {"+blockheightx+",uint256S("+hashinquotes+")},";
+          }
         } else if (blockheightx == currentblock) { //last block in checkpoints,so dont add , at end of output data
            outputdata = "           {"+blockheightx+",uint256S("+hashinquotes+")}\n          }\n};\n";
            outputdata += "\nchainTxData = ChainTxData{\n"
-                     +blocktime + ",// * UNIX timestamp of last checkpoint block\n" 
+                     +blocktime + ",// * UNIX timestamp of last checkpoint block\n"
                      +totaltx+",    // * total number of transactions between genesis and last checkpoint\n" +
-                     "              //   (the tx=... number in the SetBestChain debug.log lines)\n" + 
+                     "              //   (the tx=... number in the SetBestChain debug.log lines)\n" +
                      2000 + "       // * estimated number of transactions per day after checkpoint\n};";
         }
-        console.log(outputdata)
+        if(!findBadTimes){
+          console.log(outputdata)
+        }
     }
    });
  }
-++i;
+if(!findBadTimes){
+  ++i;
+}
 }
 generateCheckpoints(blockspacing, currentblock);
